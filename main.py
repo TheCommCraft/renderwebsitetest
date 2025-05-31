@@ -1,10 +1,10 @@
-from typing import Optional, Generic, TypeVar, TypedDict
+from typing import Optional, Generic, TypeVar
 from asyncio import Lock, Queue, timeout
 from pathlib import Path
-from json import dumps
 from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -33,7 +33,7 @@ class DataEvent(Generic[D]):
     async def push_data(self, data: D) -> None:
         await self._queue.put(data)
 
-class Message(TypedDict):
+class Message(BaseModel):
     user: str
     message: str
 
@@ -52,7 +52,7 @@ async def waiter() -> AsyncIterator[str]:
     try:
         async with timeout(60):
             while True:
-                yield dumps(await message_event.await_data())+"\n"
+                yield (await message_event.await_data()).model_dump_json()+"\n"
     except TimeoutError:
         pass
 
@@ -61,5 +61,5 @@ async def wait_stream():
     return StreamingResponse(waiter(), media_type="application/x-ndjson")
 
 @app.post("/streamtest/")
-async def send_data(user: str, message: str):
-    await message_event.push_data({"user": user, "message": message})
+async def send_data(message: Message):
+    await message_event.push_data(message)
