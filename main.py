@@ -1,37 +1,13 @@
-from typing import Optional, Generic, TypeVar
-from asyncio import Lock, Queue, timeout
+from typing import Optional
+from asyncio import timeout
 from pathlib import Path
 from collections.abc import AsyncIterator
+from data_event import DataEvent
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
 app = FastAPI()
-
-D = TypeVar("D")
-class DataEvent(Generic[D]):
-    _wait_lock: Lock
-    _queue: Queue[D]
-    _last_waiter: int
-    def __init__(self):
-        self._wait_lock = Lock()
-        self._queue = Queue()
-        self._last_waiter = 0
-    
-    async def await_data(self) -> D:
-        async with self._wait_lock:
-            self._last_waiter += 1
-            current_waiter = self._last_waiter
-        data = await self._queue.get()
-        async with self._wait_lock:
-            if self._last_waiter != current_waiter:
-                await self.push_data(data)
-            else:
-                self._last_waiter = 0
-        return data
-    
-    async def push_data(self, data: D) -> None:
-        await self._queue.put(data)
 
 class Message(BaseModel):
     user: str
