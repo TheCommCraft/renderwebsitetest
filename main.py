@@ -12,6 +12,7 @@ app = FastAPI()
 class Message(BaseModel):
     user: str
     message: str
+    user_id: int
 
 message_event: DataEvent[Message] = DataEvent()
 root_template = Path(__file__).parent / "index.html"

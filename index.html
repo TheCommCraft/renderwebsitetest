@@ -11,8 +11,8 @@
         #chat-container { display: none; } /* Initially hidden */
         #messages { list-style-type: none; padding: 0; margin: 0 0 20px 0; height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background-color: #f9f9f9; }
         #messages li { padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; }
-        #messages li:nth-child(odd) { background-color: #e9f5ff; }
-        #messages li:nth-child(even) { background-color: #f0f0f0; }
+        #messages { background-color: #e9f5ff; }
+        #messages .is-me { background-color: #f0f0f0; }
         #messages .message-user { font-weight: bold; color: #007bff; }
         #message-input { width: calc(100% - 80px); padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-right: 5px; }
         button { padding: 10px 15px; border: none; background-color: #007bff; color: white; border-radius: 4px; cursor: pointer; }
@@ -53,9 +53,13 @@
         const API_URL = 'https://renderwebsitetest.onrender.com/streamtest/';
         let currentUsername = '';
         let abortController = null; // To potentially abort ongoing fetch if needed (though not strictly used for aborting repeats here)
+        let userId = crypto.getRandomValues(new Uint32Array(1))[0];
 
-        function displayMessage(user, message) {
+        function displayMessage(user, message, isMe) {
             const item = document.createElement('li');
+            if (isMe) {
+                item.classList.add("is-me"); 
+            }
             const userSpan = document.createElement('span');
             userSpan.className = 'message-user';
             userSpan.textContent = user + ': ';
@@ -120,7 +124,7 @@
                         try {
                             const json = JSON.parse(line);
                             if (json.user && json.message) {
-                                displayMessage(json.user, json.message);
+                                displayMessage(json.user, json.message, json.user_id == userId);
                             } else {
                                 console.warn('Received malformed JSON:', json);
                             }
@@ -162,7 +166,8 @@
 
             const payload = {
                 user: currentUsername,
-                message: messageText
+                message: messageText,
+                user_id: userId
             };
 
             updateStatus('Sending message...');
