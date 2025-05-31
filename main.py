@@ -1,9 +1,10 @@
 from typing import Optional, Generic, TypeVar, TypedDict
 from asyncio import Lock, Queue, timeout
+from pathlib import Path
 from json import dumps
 from collections.abc import AsyncIterator
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 
 app = FastAPI()
 
@@ -37,10 +38,11 @@ class Message(TypedDict):
     message: str
 
 message_event: DataEvent[Message] = DataEvent()
+root_template = Path(__file__).parent / "index.html"
 
 @app.get("/")
-async def root():
-    return {"message": "Hello World"}
+def root():
+    return FileResponse(root_template)
 
 @app.get("/items/{item_id}")
 def read_item(item_id: int, q: Optional[str] = None):

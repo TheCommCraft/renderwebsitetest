@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal Chat</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        .container { max-width: 600px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #username-container, #chat-container { margin-bottom: 20px; }
+        #chat-container { display: none; } /* Initially hidden */
+        #messages { list-style-type: none; padding: 0; margin: 0 0 20px 0; height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background-color: #f9f9f9; }
+        #messages li { padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; }
+        #messages li:nth-child(odd) { background-color: #e9f5ff; }
+        #messages li:nth-child(even) { background-color: #f0f0f0; }
+        #messages .message-user { font-weight: bold; color: #007bff; }
+        #message-input { width: calc(100% - 80px); padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-right: 5px; }
+        button { padding: 10px 15px; border: none; background-color: #007bff; color: white; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #status { font-size: 0.9em; color: #666; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="username-container">
+            <h2>Enter Username</h2>
+            <input type="text" id="username-input" placeholder="Your username">
+            <button id="set-username-btn">Set Username & Start Chat</button>
+        </div>
+
+        <div id="chat-container">
+            <h2>Chat Room</h2>
+            <ul id="messages"></ul>
+            <div id="input-area">
+                <input type="text" id="message-input" placeholder="Type a message...">
+                <button id="send-btn">Send</button>
+            </div>
+            <div id="status">Connecting...</div>
+        </div>
+    </div>
+
+    <script>
+        const usernameInput = document.getElementById('username-input');
+        const setUsernameBtn = document.getElementById('set-username-btn');
+        const usernameContainer = document.getElementById('username-container');
+        
+        const chatContainer = document.getElementById('chat-container');
+        const messagesList = document.getElementById('messages');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusDiv = document.getElementById('status');
+
+        const API_URL = 'https://renderwebsitetest.onrender.com/streamtest/';
+        let currentUsername = '';
+        let abortController = null; // To potentially abort ongoing fetch if needed (though not strictly used for aborting repeats here)
+
+        function displayMessage(user, message) {
+            const item = document.createElement('li');
+            const userSpan = document.createElement('span');
+            userSpan.className = 'message-user';
+            userSpan.textContent = user + ': ';
+            item.appendChild(userSpan);
+            item.appendChild(document.createTextNode(message));
+            messagesList.appendChild(item);
+            messagesList.scrollTop = messagesList.scrollHeight; // Auto-scroll
+        }
+
+        function updateStatus(text) {
+            statusDiv.textContent = text;
+        }
+
+        async function fetchMessages() {
+            if (abortController) { // In case we need to manually stop it later
+                abortController.abort();
+            }
+            abortController = new AbortController();
+            const signal = abortController.signal;
+
+            updateStatus('Fetching messages...');
+            try {
+                const response = await fetch(API_URL, { signal });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                if (!response.body) {
+                    throw new Error('Response body is null. Streaming not supported?');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        updateStatus('Stream completed. Reconnecting...');
+                        // Process any remaining buffer content if it's a complete JSON object
+                        if (buffer.trim()) {
+                            try {
+                                const json = JSON.parse(buffer.trim());
+                                if (json.user && json.message) {
+                                    displayMessage(json.user, json.message);
+                                }
+                            } catch (e) {
+                                console.warn('Error parsing remaining buffer:', buffer, e);
+                            }
+                        }
+                        buffer = ''; // Clear buffer for next run
+                        break; // Exit while loop to allow recursion
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    let lines = buffer.split('\n');
+                    
+                    // The last part of the split might be an incomplete line
+                    buffer = lines.pop(); 
+
+                    for (const line of lines) {
+                        if (line.trim() === '') continue;
+                        try {
+                            const json = JSON.parse(line);
+                            if (json.user && json.message) {
+                                displayMessage(json.user, json.message);
+                            } else {
+                                console.warn('Received malformed JSON:', json);
+                            }
+                        } catch (e) {
+                            console.error('Error parsing NDJSON line:', e, 'Line:', line);
+                            // If a line fails, we might want to keep it in buffer or discard
+                            // For now, we discard the problematic line and continue with next
+                        }
+                    }
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    updateStatus('Message fetching aborted.');
+                    console.log('Fetch aborted');
+                } else {
+                    updateStatus(`Error fetching messages: ${error.message}. Retrying in 5s...`);
+                    console.error('Fetch error:', error);
+                }
+            } finally {
+                // Repeat the request after it completes or errors (with a small delay on error)
+                // The prompt says "When it completes, the request will be repeated"
+                // So, no delay for successful completion, immediate repeat.
+                // Only delay if there was an actual error.
+                if (currentUsername) { // Only repeat if user is still in chat
+                    if (statusDiv.textContent.startsWith("Error fetching messages")) {
+                        setTimeout(fetchMessages, 5000);
+                    } else {
+                        fetchMessages(); // Repeat immediately on successful completion
+                    }
+                }
+            }
+        }
+
+        async function sendMessage() {
+            const messageText = messageInput.value.trim();
+            if (!messageText || !currentUsername) {
+                return;
+            }
+
+            const payload = {
+                user: currentUsername,
+                message: messageText
+            };
+
+            updateStatus('Sending message...');
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.text(); // Try to get more error info
+                    throw new Error(`HTTP error! status: ${response.status}, details: ${errorData}`);
+                }
+                
+                // We don't display the message here directly.
+                // It should come back through the GET stream.
+                messageInput.value = ''; // Clear input
+                updateStatus('Message sent. Waiting for it to appear...');
+                // Status will be updated by fetchMessages when it arrives
+            } catch (error) {
+                console.error('Error sending message:', error);
+                updateStatus(`Error sending message: ${error.message}`);
+            }
+        }
+
+        setUsernameBtn.addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            if (username) {
+                currentUsername = username;
+                usernameContainer.style.display = 'none';
+                chatContainer.style.display = 'block';
+                document.title = `Chat - ${currentUsername}`; // Update page title
+                fetchMessages(); // Start fetching messages
+            } else {
+                alert('Please enter a username.');
+            }
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+    </script>
+</body>
+</html>
